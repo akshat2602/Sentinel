@@ -77,32 +77,27 @@ func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 
 	// read from client and forward to destination server
 	go func() {
-		for {
-			_, err := io.Copy(rw, conn)
-			if err != nil {
-				errorLogger.Println("Error forwarding data to destination server:", err.Error())
-				return
-			}
+		_, err := io.Copy(rw, conn)
+		if err != nil {
+			errorLogger.Println("Error forwarding data to destination server:", err.Error())
+			return
 		}
 	}()
 
 	// read from destination server and forward to client
 	go func() {
-		for {
-			_, err := io.Copy(conn, rw)
+		_, err := io.Copy(conn, rw)
+		if err != nil {
+			errorLogger.Println("Error forwarding data to destination server:", err.Error())
+			return
+		}
+		// Check if rw is a bufio.ReadWriter and flush the buffer
+		if _, ok := rw.(*bufio.ReadWriter); ok {
+			err = rw.(*bufio.ReadWriter).Flush()
 			if err != nil {
-				errorLogger.Println("Error forwarding data to destination server:", err.Error())
+				errorLogger.Println("Error flushing data to client:", err.Error())
 				return
 			}
-			// Check if rw is a bufio.ReadWriter and flush the buffer
-			if _, ok := rw.(*bufio.ReadWriter); ok {
-				err = rw.(*bufio.ReadWriter).Flush()
-				if err != nil {
-					errorLogger.Println("Error flushing data to client:", err.Error())
-					return
-				}
-			}
-
 		}
 	}()
 }
