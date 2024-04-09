@@ -59,7 +59,7 @@ func (rw *ReadFromEncryptDecryptWrite) Read(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 64*1024)
 	n, err := reader.Read(buf)
 	if err != nil {
 		return 0, err
@@ -103,7 +103,7 @@ func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 64*1024)
 	n, err := rw.innerRW.Read(buf)
 	if err != nil {
 		return 0, err
@@ -133,20 +133,23 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 
 func encryptData(data []byte) []byte {
 	dk := pbkdf2.Key(Pwd, []byte("fixedyourmom"), 4096, 32, sha1.New)
-	debugLogger.Println("Encryption key:", dk)
+	// debugLogger.Println("Encryption key:", dk)
 
 	block, err := aes.NewCipher(dk)
 	if err != nil {
+		errorLogger.Println("Error creating new cipher:", err.Error())
 		panic(err.Error())
 	}
 
 	nonce := make([]byte, 12)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		errorLogger.Println("Error generating nonce:", err.Error())
 		panic(err.Error())
 	}
 
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
+		errorLogger.Println("Error creating new GCM:", err.Error())
 		panic(err.Error())
 	}
 
@@ -158,10 +161,11 @@ func encryptData(data []byte) []byte {
 
 func decryptData(data []byte) []byte {
 	dk := pbkdf2.Key(Pwd, []byte("fixedyourmom"), 4096, 32, sha1.New)
-	debugLogger.Println("Decryption key:", dk)
+	// debugLogger.Println("Decryption key:", dk)
 
 	block, err := aes.NewCipher(dk)
 	if err != nil {
+		errorLogger.Println("Error creating new cipher:", err.Error())
 		panic(err.Error())
 	}
 
@@ -170,11 +174,13 @@ func decryptData(data []byte) []byte {
 
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
+		errorLogger.Println("Error creating new GCM:", err.Error())
 		panic(err.Error())
 	}
 
 	data, err = aesgcm.Open(nil, nonce, data, nil)
 	if err != nil {
+		errorLogger.Println("Error decrypting data:", err.Error())
 		panic(err.Error())
 	}
 
@@ -206,7 +212,7 @@ func (p *ProxyConfig) ReadPasswordFile() {
 		errorLogger.Println("Error reading password file:", err.Error())
 		os.Exit(1)
 	}
-	infoLogger.Println("Password read from file:", string(Pwd))
+	// infoLogger.Println("Password read from file:", string(Pwd))
 }
 
 func (p *ProxyConfig) CreateProxyConnection() error {
@@ -233,7 +239,7 @@ func (p *ProxyConfig) ListenAndServe(listenPort int) {
 			errorLogger.Println("Error accepting connection:", err.Error())
 			return
 		} else {
-			debugLogger.Println("Accepted connection from", client.RemoteAddr())
+			// debugLogger.Println("Accepted connection from", client.RemoteAddr())
 		}
 		// Only handle one connection at a time
 		p.handleProxyConnection(client)
@@ -255,7 +261,7 @@ func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 		for {
 			_, err := io.Copy(derw, fwdConn)
 			if err != nil {
-				errorLogger.Println("Error forwarding data to destination server:", err.Error())
+				errorLogger.Println("Error forwarding data:", err.Error())
 				return
 			}
 		}
@@ -273,7 +279,7 @@ func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 		for {
 			_, err := io.Copy(fwdConn, derw)
 			if err != nil {
-				errorLogger.Println("Error forwarding data to destination server:", err.Error())
+				errorLogger.Println("Error forwarding data:", err.Error())
 				return
 			}
 		}
@@ -301,10 +307,10 @@ func main() {
 
 	proxyMode := 0
 	if *listenPort != 0 {
-		infoLogger.Printf("Starting reverse proxy on port %d with destination %s:%s\n", *listenPort, destination, port)
+		// infoLogger.Printf("Starting reverse proxy on port %d with destination %s:%s\n", *listenPort, destination, port)
 		proxyMode = 1
 	} else {
-		infoLogger.Printf("Starting forward proxy with destination %s:%s\n", destination, port)
+		// infoLogger.Printf("Starting forward proxy with destination %s:%s\n", destination, port)
 	}
 
 	proxyConfig := CreateNewProxyConfig(destination, port, *pwdFile, proxyMode)
