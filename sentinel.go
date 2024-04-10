@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -21,13 +22,11 @@ import (
 const (
 	_reset     = "\033[0m"
 	_greenbold = "\033[32;1m"
-	_bluebold  = "\033[34;1m"
 	_red       = "\033[31m"
 )
 
 var logFlags = log.LstdFlags | log.LUTC | log.Lmsgprefix | log.Lshortfile
 
-var debugLogger = log.New(os.Stdout, _bluebold+"[DEBUG] "+_reset, logFlags)
 var infoLogger = log.New(os.Stdout, _greenbold+"[INFO] "+_reset, logFlags)
 var errorLogger = log.New(os.Stdout, _red+"[ERROR] "+_reset, logFlags)
 
@@ -45,7 +44,7 @@ type ProxyConfig struct {
 	port        string
 	pwdFile     string
 	// fwdConn is a pointer to the connection to the destination server(it could either be the reverse proxy or the final destination server based on the mode the proxy is running in)
-	fwdConn   *net.Conn
+	// fwdConn   *net.Conn
 	proxyMode int
 }
 
@@ -212,17 +211,15 @@ func (p *ProxyConfig) ReadPasswordFile() {
 		errorLogger.Println("Error reading password file:", err.Error())
 		os.Exit(1)
 	}
-	// infoLogger.Println("Password read from file:", string(Pwd))
 }
 
-func (p *ProxyConfig) CreateProxyConnection() error {
+func (p *ProxyConfig) CreateProxyConnection() (net.Conn, error) {
 	addr := fmt.Sprintf("%s:%s", p.destination, p.port)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	p.fwdConn = &conn
-	return nil
+	return conn, nil
 }
 
 func (p *ProxyConfig) ListenAndServe(listenPort int) {
@@ -238,52 +235,54 @@ func (p *ProxyConfig) ListenAndServe(listenPort int) {
 		if err != nil {
 			errorLogger.Println("Error accepting connection:", err.Error())
 			return
-		} else {
-			// debugLogger.Println("Accepted connection from", client.RemoteAddr())
 		}
 		// Only handle one connection at a time
-		p.handleProxyConnection(client)
+		infoLogger.Println("Handling connection from:", client.RemoteAddr())
+		go p.handleProxyConnection(client)
 	}
 }
 
 func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
-	fwdConn := *p.fwdConn
+	// Establish a connection to the destination server
+	fwdConn, err := p.CreateProxyConnection()
+	if err != nil {
+		errorLogger.Println("Error creating proxy connection:", err.Error())
+		return
+	}
 
-	// If the proxy is a forward proxy, this goroutine will read from the connection(reverse proxy) and write to stdout
-	// If the proxy is a reverse proxy, this goroutine will read from the destination server and write to the connection(forward proxy)
-	go func() {
-		derw := &ReadFromEncryptDecryptWrite{
-			innerRW:     rw,
-			encryptFunc: encryptData,
-			decryptFunc: decryptData,
-			proxyMode:   p.proxyMode,
-		}
+	derw := &ReadFromEncryptDecryptWrite{
+		innerRW:     rw,
+		encryptFunc: encryptData,
+		decryptFunc: decryptData,
+		proxyMode:   p.proxyMode,
+	}
+
+	forwardData := func(src io.Reader, dest io.Writer) {
 		for {
-			_, err := io.Copy(derw, fwdConn)
+			_, err := io.Copy(dest, src)
 			if err != nil {
+				if opErr, ok := err.(*net.OpError); ok && strings.Contains(opErr.Err.Error(), "use of closed network connection") || err == io.EOF {
+					infoLogger.Println("Closing connection to ", fwdConn.RemoteAddr())
+					fwdConn.Close()
+					// Check if rw is a net.Conn and close it
+					if conn, ok := rw.(net.Conn); ok {
+						infoLogger.Println("Closing connection to", conn.RemoteAddr())
+						conn.Close()
+					}
+					return
+				}
 				errorLogger.Println("Error forwarding data:", err.Error())
 				return
 			}
 		}
-	}()
+	}
+	// If the proxy is a forward proxy, this goroutine will read from the connection(reverse proxy) and write to stdout
+	// If the proxy is a reverse proxy, this goroutine will read from the destination server and write to the connection(forward proxy)
+	go forwardData(fwdConn, derw)
 
 	// If the proxy is a forward proxy, this goroutine will read from stdin and write to the connection(reverse proxy)
 	// If the proxy is a reverse proxy, this goroutine will read from the connection(forward proxy) and write to the destination server
-	go func() {
-		derw := &ReadFromEncryptDecryptWrite{
-			innerRW:     rw,
-			encryptFunc: encryptData,
-			decryptFunc: decryptData,
-			proxyMode:   p.proxyMode,
-		}
-		for {
-			_, err := io.Copy(fwdConn, derw)
-			if err != nil {
-				errorLogger.Println("Error forwarding data:", err.Error())
-				return
-			}
-		}
-	}()
+	go forwardData(derw, fwdConn)
 }
 
 func main() {
@@ -307,21 +306,14 @@ func main() {
 
 	proxyMode := 0
 	if *listenPort != 0 {
-		// infoLogger.Printf("Starting reverse proxy on port %d with destination %s:%s\n", *listenPort, destination, port)
 		proxyMode = 1
-	} else {
-		// infoLogger.Printf("Starting forward proxy with destination %s:%s\n", destination, port)
+		infoLogger.Println("Running in reverse-proxy mode, listening on port:", *listenPort, " for destination:", destination, " port:", port)
 	}
 
 	proxyConfig := CreateNewProxyConfig(destination, port, *pwdFile, proxyMode)
 
 	proxyConfig.ReadPasswordFile()
 
-	err := proxyConfig.CreateProxyConnection()
-	if err != nil {
-		errorLogger.Println("Error creating proxy connection:", err.Error())
-		os.Exit(1)
-	}
 	if *listenPort != 0 {
 		proxyConfig.ListenAndServe(*listenPort)
 	} else {
