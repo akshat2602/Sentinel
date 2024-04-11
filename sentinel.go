@@ -43,8 +43,7 @@ type ProxyConfig struct {
 	destination string
 	port        string
 	pwdFile     string
-	// fwdConn is a pointer to the connection to the destination server(it could either be the reverse proxy or the final destination server based on the mode the proxy is running in)
-	// fwdConn   *net.Conn
+	// 0 for forward proxy, 1 for reverse proxy
 	proxyMode int
 }
 
@@ -53,12 +52,12 @@ var Pwd []byte
 func (rw *ReadFromEncryptDecryptWrite) Read(buf []byte) (int, error) {
 	tmpBuf := make([]byte, len(buf))
 	n, err := rw.innerRW.Read(tmpBuf)
-	copy(buf[:n], rw.decryptFunc(tmpBuf[:n]))
+	copy(buf[:n], tmpBuf[:n])
 	return n, err
 }
 
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, 64*4096)
 	n, err := reader.Read(buf)
 	if err != nil {
 		return 0, err
@@ -102,7 +101,7 @@ func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) {
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, 64*4096)
 	n, err := rw.innerRW.Read(buf)
 	if err != nil {
 		return 0, err
@@ -132,7 +131,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 
 func encryptData(data []byte) []byte {
 	dk := pbkdf2.Key(Pwd, []byte("fixedyourmom"), 4096, 32, sha1.New)
-	// debugLogger.Println("Encryption key:", dk)
+	// infoLogger.Println("Encryption key:", dk)
 
 	block, err := aes.NewCipher(dk)
 	if err != nil {
@@ -160,7 +159,7 @@ func encryptData(data []byte) []byte {
 
 func decryptData(data []byte) []byte {
 	dk := pbkdf2.Key(Pwd, []byte("fixedyourmom"), 4096, 32, sha1.New)
-	// debugLogger.Println("Decryption key:", dk)
+	// infoLogger.Println("Decryption key:", dk)
 
 	block, err := aes.NewCipher(dk)
 	if err != nil {
@@ -307,7 +306,7 @@ func main() {
 	proxyMode := 0
 	if *listenPort != 0 {
 		proxyMode = 1
-		infoLogger.Println("Running in reverse-proxy mode, listening on port:", *listenPort, " for destination:", destination, " port:", port)
+		infoLogger.Println("Running in reverse-proxy mode, listening on port:", *listenPort, "for destination:", destination, "port:", port)
 	}
 
 	proxyConfig := CreateNewProxyConfig(destination, port, *pwdFile, proxyMode)
