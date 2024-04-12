@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha1"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -54,6 +56,20 @@ func (rw *ReadFromEncryptDecryptWrite) Read(buf []byte) (int, error) {
 	n, err := rw.innerRW.Read(tmpBuf)
 	copy(buf[:n], tmpBuf[:n])
 	return n, err
+}
+
+func readBufLength(buf []byte) (uint32, error) {
+	// Read the first 4 bytes and convert it to an integer
+	if len(buf) < 4 {
+		return 0, fmt.Errorf("buffer length is less than 4 bytes")
+	}
+	var readLen uint32
+	tempBufReader := bytes.NewReader(buf[:4])
+	err := binary.Read(tempBufReader, binary.BigEndian, &readLen)
+	if err != nil {
+		return 0, err
+	}
+	return readLen, nil
 }
 
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
@@ -258,7 +274,7 @@ func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 		proxyMode:   p.proxyMode,
 	}
 
-	forwardData := func(src io.Reader, dest io.Writer) {
+	forwardData := func(dest io.Writer, src io.Reader) {
 		for {
 			_, err := io.Copy(dest, src)
 			if err != nil {
@@ -279,11 +295,11 @@ func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 	}
 	// If the proxy is a forward proxy, this goroutine will read from the connection(reverse proxy) and write to stdout
 	// If the proxy is a reverse proxy, this goroutine will read from the destination server and write to the connection(forward proxy)
-	go forwardData(fwdConn, derw)
+	go forwardData(derw, fwdConn)
 
 	// If the proxy is a forward proxy, this goroutine will read from stdin and write to the connection(reverse proxy)
 	// If the proxy is a reverse proxy, this goroutine will read from the connection(forward proxy) and write to the destination server
-	go forwardData(derw, fwdConn)
+	go forwardData(fwdConn, derw)
 }
 
 func main() {
