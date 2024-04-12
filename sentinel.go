@@ -82,6 +82,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 			return 0, err
 		}
 	}
+	clear(buf)
 	return int64(n), nil
 }
 
@@ -126,6 +127,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 			return 0, err
 		}
 	}
+	clear(buf)
 	return int64(n), nil
 }
 
