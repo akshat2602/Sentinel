@@ -57,7 +57,7 @@ func (rw *ReadFromEncryptDecryptWrite) Read(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
-	buf := make([]byte, 64*4096)
+	buf := make([]byte, 64*1024)
 	n, err := reader.Read(buf)
 	if err != nil {
 		return 0, err
@@ -102,7 +102,7 @@ func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) {
-	buf := make([]byte, 64*4096)
+	buf := make([]byte, 64*1024)
 	n, err := rw.innerRW.Read(buf)
 	if err != nil {
 		return 0, err
