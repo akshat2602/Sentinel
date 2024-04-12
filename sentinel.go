@@ -64,7 +64,7 @@ func readBufLength(buf []byte) (uint32, error) {
 		return 0, fmt.Errorf("buffer length is less than 4 bytes")
 	}
 	var readLen uint32
-	tempBufReader := bytes.NewReader(buf[:4])
+	tempBufReader := bytes.NewReader(buf)
 	err := binary.Read(tempBufReader, binary.BigEndian, &readLen)
 	if err != nil {
 		return 0, err
@@ -72,19 +72,41 @@ func readBufLength(buf []byte) (uint32, error) {
 	return readLen, nil
 }
 
+func prependBufLength(buf []byte) []byte {
+	// Prepend the length of the buffer to the buffer
+	bufLen := make([]byte, 4)
+	binary.BigEndian.PutUint32(bufLen, uint32(len(buf)))
+	return append(bufLen, buf...)
+}
+
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
-	buf := make([]byte, 64*1024)
-	n, err := reader.Read(buf)
-	if err != nil {
-		return 0, err
-	}
+	var n int
 	if rw.proxyMode == 1 {
+		buf := make([]byte, 64*1024)
+		n, err := reader.Read(buf)
+		if err != nil {
+			return 0, err
+		}
 		// Encrypt the data read from the reader and write to the innerRW
-		_, err = rw.innerRW.Write(rw.encryptFunc(buf[:n]))
+		_, err = rw.innerRW.Write(prependBufLength(rw.encryptFunc(buf[:n])))
 		if err != nil {
 			return 0, err
 		}
 	} else {
+		buf := make([]byte, 4)
+		_, err := reader.Read(buf)
+		if err != nil {
+			return 0, err
+		}
+		readLen, err := readBufLength(buf)
+		if err != nil {
+			return 0, err
+		}
+		buf = make([]byte, readLen)
+		n, err := reader.Read(buf)
+		if err != nil {
+			return 0, err
+		}
 		// Decrypt the data read from the reader and write to the innerRW
 		_, err = rw.innerRW.Write(rw.decryptFunc(buf[:n]))
 		if err != nil {
@@ -98,7 +120,6 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 			return 0, err
 		}
 	}
-	clear(buf)
 	return int64(n), nil
 }
 
@@ -118,20 +139,35 @@ func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 }
 
 func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) {
-	buf := make([]byte, 64*1024)
-	n, err := rw.innerRW.Read(buf)
-	if err != nil {
-		return 0, err
-	}
+	var n int
 	if rw.proxyMode == 1 {
+		buf := make([]byte, 4)
+		_, err := rw.innerRW.Read(buf)
+		if err != nil {
+			return 0, err
+		}
+		readLen, err := readBufLength(buf)
+		if err != nil {
+			return 0, err
+		}
+		buf = make([]byte, readLen)
+		n, err := rw.innerRW.Read(buf)
+		if err != nil {
+			return 0, err
+		}
 		// Decrypt the data read from the innerRW and write to the writer
 		_, err = writer.Write(rw.decryptFunc(buf[:n]))
 		if err != nil {
 			return 0, err
 		}
 	} else {
+		buf := make([]byte, 64*1024)
+		n, err := rw.innerRW.Read(buf)
+		if err != nil {
+			return 0, err
+		}
 		// Encrypt the data read from the innerRW and write to the writer
-		_, err = writer.Write(rw.encryptFunc(buf[:n]))
+		_, err = writer.Write(prependBufLength(rw.encryptFunc(buf[:n])))
 		if err != nil {
 			return 0, err
 		}
@@ -143,7 +179,6 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 			return 0, err
 		}
 	}
-	clear(buf)
 	return int64(n), nil
 }
 
