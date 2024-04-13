@@ -103,12 +103,25 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 			return 0, err
 		}
 		buf = make([]byte, readLen)
-		n, err := reader.Read(buf)
-		if err != nil {
-			return 0, err
+		for i := 0; i < int(readLen); {
+			tmpBuf := make([]byte, 1)
+			n, err := reader.Read(tmpBuf)
+			if err != nil {
+				return 0, err
+			}
+			if n == 1 {
+				buf[i] = tmpBuf[0]
+				i++
+			} else {
+				continue
+			}
 		}
+		// n, err := reader.Read(buf)
+		// if err != nil {
+		// 	return 0, err
+		// }
 		// Decrypt the data read from the reader and write to the innerRW
-		_, err = rw.innerRW.Write(rw.decryptFunc(buf[:n]))
+		_, err = rw.innerRW.Write(rw.decryptFunc(buf))
 		if err != nil {
 			return 0, err
 		}
@@ -151,12 +164,21 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 			return 0, err
 		}
 		buf = make([]byte, readLen)
-		n, err := rw.innerRW.Read(buf)
-		if err != nil {
-			return 0, err
+		for i := 0; i < int(readLen); {
+			tmpBuf := make([]byte, 1)
+			n, err := rw.innerRW.Read(tmpBuf)
+			if err != nil {
+				return 0, err
+			}
+			if n == 1 {
+				buf[i] = tmpBuf[0]
+				i++
+			} else {
+				continue
+			}
 		}
 		// Decrypt the data read from the innerRW and write to the writer
-		_, err = writer.Write(rw.decryptFunc(buf[:n]))
+		_, err = writer.Write(rw.decryptFunc(buf))
 		if err != nil {
 			return 0, err
 		}
