@@ -92,6 +92,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 		if err != nil {
 			return 0, err
 		}
+		clear(buf)
 	} else {
 		buf := make([]byte, 4)
 		_, err := reader.Read(buf)
@@ -125,6 +126,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 		if err != nil {
 			return 0, err
 		}
+		clear(buf)
 	}
 	// Flush the buffer if the innerWriter is a bufio.ReadWriter
 	if _, ok := rw.innerRW.(*bufio.ReadWriter); ok {
@@ -182,6 +184,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 		if err != nil {
 			return 0, err
 		}
+		clear(buf)
 	} else {
 		buf := make([]byte, 64*1024)
 		n, err := rw.innerRW.Read(buf)
@@ -193,6 +196,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 		if err != nil {
 			return 0, err
 		}
+		clear(buf)
 	}
 	// Flush the buffer if the innerWriter is a bufio.ReadWriter
 	if _, ok := rw.innerRW.(*bufio.ReadWriter); ok {
