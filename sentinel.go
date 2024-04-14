@@ -32,12 +32,13 @@ var logFlags = log.LstdFlags | log.LUTC | log.Lmsgprefix | log.Lshortfile
 var infoLogger = log.New(os.Stdout, _greenbold+"[INFO] "+_reset, logFlags)
 var errorLogger = log.New(os.Stdout, _red+"[ERROR] "+_reset, logFlags)
 
-// this struct encrypts the data read from the innerReader and returns the encrypted data
+// This struct implements the WriterTo and ReaderFrom interfaces to read from and write to the innerRW
 type ReadFromEncryptDecryptWrite struct {
 	innerRW     io.ReadWriter
 	encryptFunc func([]byte) []byte
 	decryptFunc func([]byte) []byte
-	proxyMode   int
+	// 0 for forward proxy, 1 for reverse proxy
+	proxyMode int
 }
 
 // ProxyConfig struct to hold the configuration for the proxy in either modes
@@ -51,6 +52,7 @@ type ProxyConfig struct {
 
 var Pwd []byte
 
+// Unchanged Read
 func (rw *ReadFromEncryptDecryptWrite) Read(buf []byte) (int, error) {
 	tmpBuf := make([]byte, len(buf))
 	n, err := rw.innerRW.Read(tmpBuf)
@@ -79,6 +81,7 @@ func prependBufLength(buf []byte) []byte {
 	return append(bufLen, buf...)
 }
 
+// Function that implements the ReadFrom interface to read from the reader and write to the innerRW
 func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error) {
 	var n int
 	if rw.proxyMode == 1 {
@@ -87,7 +90,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 		if err != nil {
 			return 0, err
 		}
-		// Encrypt the data read from the reader and write to the innerRW
+		// Encrypt the data read from the reader and write to the innerRW with the length of the buffer prepended
 		_, err = rw.innerRW.Write(prependBufLength(rw.encryptFunc(buf[:n])))
 		if err != nil {
 			return 0, err
@@ -104,6 +107,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 			return 0, err
 		}
 		buf = make([]byte, readLen)
+		// Read the data from the reader byte by byte
 		for i := 0; i < int(readLen); {
 			tmpBuf := make([]byte, 1)
 			n, err := reader.Read(tmpBuf)
@@ -117,10 +121,6 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 				continue
 			}
 		}
-		// n, err := reader.Read(buf)
-		// if err != nil {
-		// 	return 0, err
-		// }
 		// Decrypt the data read from the reader and write to the innerRW
 		_, err = rw.innerRW.Write(rw.decryptFunc(buf))
 		if err != nil {
@@ -138,6 +138,7 @@ func (rw *ReadFromEncryptDecryptWrite) ReadFrom(reader io.Reader) (int64, error)
 	return int64(n), nil
 }
 
+// Unchanged Write
 func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 	n, err := rw.innerRW.Write(buf)
 	if err != nil {
@@ -153,6 +154,7 @@ func (rw *ReadFromEncryptDecryptWrite) Write(buf []byte) (int, error) {
 	return n, nil
 }
 
+// Function that implements the WriteTo interface to read from the innerRW and write to the writer
 func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) {
 	var n int
 	if rw.proxyMode == 1 {
@@ -166,6 +168,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 			return 0, err
 		}
 		buf = make([]byte, readLen)
+		// Read the data from the innerRW byte by byte
 		for i := 0; i < int(readLen); {
 			tmpBuf := make([]byte, 1)
 			n, err := rw.innerRW.Read(tmpBuf)
@@ -191,7 +194,7 @@ func (rw *ReadFromEncryptDecryptWrite) WriteTo(writer io.Writer) (int64, error) 
 		if err != nil {
 			return 0, err
 		}
-		// Encrypt the data read from the innerRW and write to the writer
+		// Encrypt the data read from the innerRW and write to the writer with the length of the buffer prepended
 		_, err = writer.Write(prependBufLength(rw.encryptFunc(buf[:n])))
 		if err != nil {
 			return 0, err
@@ -315,11 +318,14 @@ func (p *ProxyConfig) ListenAndServe(listenPort int) {
 			return
 		}
 		// Only handle one connection at a time
-		infoLogger.Println("Handling connection from:", client.RemoteAddr())
+		infoLogger.Println("Establishing connection from:", client.RemoteAddr())
 		go p.handleProxyConnection(client)
 	}
 }
 
+// Function takes in a io.ReadWriter and reads from it and writes to it based on the proxy mode
+// If the proxy is a forward proxy, it reads from the connection and writes to the destination server
+// If the proxy is a reverse proxy, it reads from the destination server and writes to the connection
 func (p *ProxyConfig) handleProxyConnection(rw io.ReadWriter) {
 	// Establish a connection to the destination server
 	fwdConn, err := p.CreateProxyConnection()
